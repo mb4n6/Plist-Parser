@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""
-Universal Plist Parser - Forensic GUI Version
-Grafische Benutzeroberfläche zum Parsen und Anzeigen von Plist-Dateien
-Speziell für forensische Analysen mit vollständiger Tiefe und eingebetteten Plists
-Unterstützt: XML, Binary und NSKeyedArchive Formate
-"""
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
@@ -18,18 +12,16 @@ import re
 
 
 class UniversalPlistParser:
-    """Parser für alle Plist-Formate (XML, Binary, NSKeyedArchive)"""
     
     def __init__(self, plist_path: str = None):
         self.plist_path = Path(plist_path) if plist_path else None
         self.data = None
         self.objects = []
         self.root_object = None
-        self.plist_format = None  # 'xml', 'binary', or 'nskeyedarchive'
+        self.plist_format = None
         self.is_nskeyedarchive = False
         
     def load(self, plist_path: str = None) -> bool:
-        """Lädt die Plist-Datei (XML, Binary oder NSKeyedArchive)"""
         if plist_path:
             self.plist_path = Path(plist_path)
             
@@ -37,10 +29,8 @@ class UniversalPlistParser:
             with open(self.plist_path, 'rb') as f:
                 self.data = plistlib.load(f)
             
-            # Erkenne Plist-Format
             self._detect_format()
             
-            # Für NSKeyedArchive: Extrahiere spezielle Struktur
             if self.is_nskeyedarchive:
                 self.objects = self.data.get('$objects', [])
                 top = self.data.get('$top', {})
@@ -53,21 +43,17 @@ class UniversalPlistParser:
                 else:
                     self.root_object = self.data
             else:
-                # Für normale Plists ist die Daten-Struktur direkt verwendbar
                 self.root_object = self.data
             
             return True
         except Exception as e:
-            raise Exception(f"Fehler beim Laden der Datei: {e}")
+            raise Exception(f"Error loading file: {e}")
     
     def _detect_format(self):
-        """Erkennt das Plist-Format"""
-        # NSKeyedArchive erkennen
         if isinstance(self.data, dict) and '$archiver' in self.data:
             self.plist_format = 'nskeyedarchive'
             self.is_nskeyedarchive = True
         else:
-            # Prüfe Datei-Header für XML vs Binary
             try:
                 with open(self.plist_path, 'rb') as f:
                     header = f.read(16)
@@ -81,23 +67,19 @@ class UniversalPlistParser:
                 self.plist_format = 'unknown'
     
     def _resolve_uid(self, uid: int) -> Any:
-        """Löst eine UID-Referenz auf"""
         if uid < len(self.objects):
             return self.objects[uid]
         return None
     
     def _parse_object(self, obj: Any, depth: int = 0, max_depth: int = 1000) -> Any:
-        """Parst ein Objekt rekursiv - UNBEGRENZTE TIEFE für forensische Analyse"""
         if depth > max_depth:
             return "... (max depth reached - possible circular reference)"
         
-        # Handle UID-Referenzen (nur für NSKeyedArchive)
         if self.is_nskeyedarchive and hasattr(obj, 'data'):
             resolved = self._resolve_uid(obj.data)
             return self._parse_object(resolved, depth + 1, max_depth)
         
         if isinstance(obj, dict):
-            # NSKeyedArchive Objekt mit $class
             if self.is_nskeyedarchive and '$class' in obj:
                 result = {}
                 for key, value in obj.items():
@@ -114,13 +96,11 @@ class UniversalPlistParser:
         return obj
     
     def get_structured_data(self) -> Dict:
-        """Gibt die strukturierten Daten zurück"""
         if self.root_object is None:
-            return {'error': 'Kein Root-Objekt gefunden'}
+            return {'error': 'No root object found'}
         return self._parse_object(self.root_object)
     
     def get_info(self) -> Dict:
-        """Gibt Informationen über die Plist zurück"""
         if not self.data:
             return {}
         
@@ -128,20 +108,19 @@ class UniversalPlistParser:
             'xml': 'XML Plist',
             'binary': 'Binary Plist',
             'nskeyedarchive': 'NSKeyedArchive',
-            'unknown': 'Unbekannt'
+            'unknown': 'Unknown'
         }
         
         info = {
-            'filename': self.plist_path.name if self.plist_path else 'Unbekannt',
-            'format': format_names.get(self.plist_format, 'Unbekannt')
+            'filename': self.plist_path.name if self.plist_path else 'Unknown',
+            'format': format_names.get(self.plist_format, 'Unknown')
         }
         
         if self.is_nskeyedarchive:
-            info['archiver'] = self.data.get('$archiver', 'Unbekannt')
-            info['version'] = self.data.get('$version', 'Unbekannt')
+            info['archiver'] = self.data.get('$archiver', 'Unknown')
+            info['version'] = self.data.get('$version', 'Unknown')
             info['object_count'] = len(self.objects)
         else:
-            # Für normale Plists
             if isinstance(self.data, dict):
                 info['root_type'] = 'Dictionary'
                 info['object_count'] = len(self.data)
@@ -156,23 +135,18 @@ class UniversalPlistParser:
 
 
 class EmbeddedPlistDetector:
-    """Erkennt eingebettete Plists in Daten"""
     
     @staticmethod
     def is_plist_data(data: bytes) -> bool:
-        """Prüft ob Binärdaten eine Plist enthalten"""
         if not data or len(data) < 8:
             return False
         
-        # Binary Plist
         if data.startswith(b'bplist'):
             return True
         
-        # XML Plist
         if data.startswith(b'<?xml') or data.startswith(b'<plist'):
             return True
         
-        # Versuche es als NSKeyedArchive zu parsen
         try:
             parsed = plistlib.loads(data)
             if isinstance(parsed, dict) and '$archiver' in parsed:
@@ -184,11 +158,8 @@ class EmbeddedPlistDetector:
     
     @staticmethod
     def try_base64_decode(text: str) -> bytes:
-        """Versucht Base64-Dekodierung"""
         try:
-            # Entferne Whitespace
             text = re.sub(r'\s+', '', text)
-            # Prüfe ob es wie Base64 aussieht
             if re.match(r'^[A-Za-z0-9+/]*={0,2}$', text) and len(text) % 4 == 0:
                 return base64.b64decode(text)
         except:
@@ -197,18 +168,12 @@ class EmbeddedPlistDetector:
     
     @staticmethod
     def detect_in_value(value: Any) -> tuple:
-        """
-        Erkennt eingebettete Plists in einem Wert
-        Gibt zurück: (has_plist, plist_data, detection_type)
-        """
-        # Direkte Binärdaten
         if isinstance(value, bytes):
             if EmbeddedPlistDetector.is_plist_data(value):
                 return (True, value, 'binary')
         
-        # String - könnte Base64-kodiert sein
         elif isinstance(value, str):
-            if len(value) > 100:  # Nur längere Strings prüfen
+            if len(value) > 100:
                 decoded = EmbeddedPlistDetector.try_base64_decode(value)
                 if decoded and EmbeddedPlistDetector.is_plist_data(decoded):
                     return (True, decoded, 'base64')
@@ -217,7 +182,6 @@ class EmbeddedPlistDetector:
 
 
 class PlistParserGUI:
-    """Grafische Benutzeroberfläche für den Plist-Parser - Forensic Edition"""
     
     def __init__(self, root):
         self.root = root
@@ -226,56 +190,51 @@ class PlistParserGUI:
         
         self.parser = UniversalPlistParser()
         self.current_file = None
-        self.embedded_plist_cache = {}  # Cache für erkannte eingebettete Plists
+        self.embedded_plist_cache = {}
+        self.bytes_cache = {}
+        self.cached_data = None
+        self.views_loaded = {'tree': False, 'json': False, 'raw': False}
         
         self.setup_ui()
         self.setup_menu()
         
     def setup_menu(self):
-        """Erstellt die Menüleiste"""
         menubar = tk.Menu(self.root)
         self.root.config(menu=menubar)
         
-        # Datei-Menü
         file_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Datei", menu=file_menu)
-        file_menu.add_command(label="Öffnen...", command=self.open_file, accelerator="Ctrl+O")
+        menubar.add_cascade(label="File", menu=file_menu)
+        file_menu.add_command(label="Open...", command=self.open_file, accelerator="Ctrl+O")
         file_menu.add_separator()
-        file_menu.add_command(label="Als JSON exportieren...", command=self.export_json)
-        file_menu.add_command(label="Als Text exportieren...", command=self.export_text)
+        file_menu.add_command(label="Export as JSON...", command=self.export_json)
+        file_menu.add_command(label="Export as Text...", command=self.export_text)
         file_menu.add_separator()
-        file_menu.add_command(label="Beenden", command=self.root.quit, accelerator="Ctrl+Q")
+        file_menu.add_command(label="Exit", command=self.root.quit, accelerator="Ctrl+Q")
         
-        # Ansicht-Menü
         view_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Ansicht", menu=view_menu)
-        view_menu.add_command(label="Baum-Ansicht", command=lambda: self.switch_view('tree'))
-        view_menu.add_command(label="JSON-Ansicht", command=lambda: self.switch_view('json'))
-        view_menu.add_command(label="Raw-Ansicht", command=lambda: self.switch_view('raw'))
+        menubar.add_cascade(label="View", menu=view_menu)
+        view_menu.add_command(label="Tree View", command=lambda: self.switch_view('tree'))
+        view_menu.add_command(label="JSON View", command=lambda: self.switch_view('json'))
+        view_menu.add_command(label="Raw View", command=lambda: self.switch_view('raw'))
         view_menu.add_separator()
-        view_menu.add_command(label="Alle Knoten erweitern", command=self.expand_all)
-        view_menu.add_command(label="Alle Knoten reduzieren", command=self.collapse_all)
+        view_menu.add_command(label="Expand All", command=self.expand_all)
+        view_menu.add_command(label="Collapse All", command=self.collapse_all)
         
-        # Forensik-Menü
         forensic_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Forensik", menu=forensic_menu)
-        forensic_menu.add_command(label="Eingebettete Plists suchen", command=self.scan_for_embedded_plists)
-        forensic_menu.add_command(label="Statistiken anzeigen", command=self.show_statistics)
+        menubar.add_cascade(label="Forensics", menu=forensic_menu)
+        forensic_menu.add_command(label="Scan for Embedded Plists", command=self.scan_for_embedded_plists)
+        forensic_menu.add_command(label="Show Statistics", command=self.show_statistics)
         
-        # Hilfe-Menü
         help_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Hilfe", menu=help_menu)
-        help_menu.add_command(label="Über", command=self.show_about)
+        menubar.add_cascade(label="Help", menu=help_menu)
+        help_menu.add_command(label="About", command=self.show_about)
         
-        # Tastenkombinationen
         self.root.bind('<Control-o>', lambda e: self.open_file())
         self.root.bind('<Control-q>', lambda e: self.root.quit())
         self.root.bind('<Control-e>', lambda e: self.expand_all())
         self.root.bind('<Control-r>', lambda e: self.collapse_all())
         
     def setup_ui(self):
-        """Erstellt die Benutzeroberfläche"""
-        # Hauptcontainer
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         self.root.columnconfigure(0, weight=1)
@@ -283,56 +242,46 @@ class PlistParserGUI:
         main_frame.columnconfigure(0, weight=1)
         main_frame.rowconfigure(2, weight=1)
         
-        # Header mit Dateiinformationen
-        header_frame = ttk.LabelFrame(main_frame, text="Datei-Information", padding="10")
+        header_frame = ttk.LabelFrame(main_frame, text="File Information", padding="10")
         header_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
         
-        # Info-Grid
         info_grid = ttk.Frame(header_frame)
         info_grid.pack(fill=tk.X)
         
-        # Dateiname
-        ttk.Label(info_grid, text="Datei:", font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=0, sticky=tk.W, padx=5)
+        ttk.Label(info_grid, text="File:", font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=0, sticky=tk.W, padx=5)
         self.file_label = ttk.Label(info_grid, text="-", foreground='blue')
         self.file_label.grid(row=0, column=1, sticky=tk.W, padx=5)
         
-        # Format
         ttk.Label(info_grid, text="Format:", font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=2, sticky=tk.W, padx=20)
         self.format_label = ttk.Label(info_grid, text="-")
         self.format_label.grid(row=0, column=3, sticky=tk.W, padx=5)
         
-        # Objekt-Anzahl
-        ttk.Label(info_grid, text="Objekte:", font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=4, sticky=tk.W, padx=20)
+        ttk.Label(info_grid, text="Objects:", font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=4, sticky=tk.W, padx=20)
         self.count_label = ttk.Label(info_grid, text="-")
         self.count_label.grid(row=0, column=5, sticky=tk.W, padx=5)
         
-        # Embedded Plists
-        ttk.Label(info_grid, text="Eingebettete Plists:", font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=6, sticky=tk.W, padx=20)
+        ttk.Label(info_grid, text="Embedded Plists:", font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=6, sticky=tk.W, padx=20)
         self.embedded_label = ttk.Label(info_grid, text="-", foreground='red')
         self.embedded_label.grid(row=0, column=7, sticky=tk.W, padx=5)
         
-        # Button-Leiste
         button_frame = ttk.Frame(main_frame)
         button_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
         
-        ttk.Button(button_frame, text="Datei öffnen", command=self.open_file).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Eingebettete Plists suchen", command=self.scan_for_embedded_plists).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Alle erweitern", command=self.expand_all).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Alle reduzieren", command=self.collapse_all).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Open File", command=self.open_file).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Scan for Embedded Plists", command=self.scan_for_embedded_plists).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Expand All", command=self.expand_all).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Collapse All", command=self.collapse_all).pack(side=tk.LEFT, padx=5)
         
-        # Notebook für verschiedene Ansichten
         self.notebook = ttk.Notebook(main_frame)
         self.notebook.grid(row=2, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.notebook.bind('<<NotebookTabChanged>>', self.on_tab_changed)
         
-        # Tab 1: Tree View
         tree_frame = ttk.Frame(self.notebook)
-        self.notebook.add(tree_frame, text="🌳 Baum-Ansicht")
+        self.notebook.add(tree_frame, text="🌳 Tree View")
         
-        # Scrollbars für Tree View
         tree_scroll_y = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL)
         tree_scroll_x = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL)
         
-        # TreeView mit erweiterter Darstellung
         self.tree_view = ttk.Treeview(
             tree_frame,
             columns=('value', 'type', 'size', 'embedded'),
@@ -343,20 +292,18 @@ class PlistParserGUI:
         tree_scroll_y.config(command=self.tree_view.yview)
         tree_scroll_x.config(command=self.tree_view.xview)
         
-        # Spalten konfigurieren
-        self.tree_view.heading('#0', text='Schlüssel / Pfad')
-        self.tree_view.heading('value', text='Wert')
-        self.tree_view.heading('type', text='Typ')
-        self.tree_view.heading('size', text='Größe')
-        self.tree_view.heading('embedded', text='Eingebettet')
+        self.tree_view.heading('#0', text='Key / Path')
+        self.tree_view.heading('value', text='Value')
+        self.tree_view.heading('type', text='Type')
+        self.tree_view.heading('size', text='Size')
+        self.tree_view.heading('embedded', text='Embedded')
         
         self.tree_view.column('#0', width=300, minwidth=200)
-        self.tree_view.column('value', width=400, minwidth=200)
+        self.tree_view.column('value', width=600, minwidth=300)
         self.tree_view.column('type', width=100, minwidth=80)
-        self.tree_view.column('size', width=80, minwidth=60)
+        self.tree_view.column('size', width=100, minwidth=60)
         self.tree_view.column('embedded', width=100, minwidth=80)
         
-        # Layout
         self.tree_view.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         tree_scroll_y.grid(row=0, column=1, sticky=(tk.N, tk.S))
         tree_scroll_x.grid(row=1, column=0, sticky=(tk.W, tk.E))
@@ -364,132 +311,135 @@ class PlistParserGUI:
         tree_frame.columnconfigure(0, weight=1)
         tree_frame.rowconfigure(0, weight=1)
         
-        # Context-Menü für TreeView
         self.tree_context_menu = tk.Menu(self.tree_view, tearoff=0)
-        self.tree_context_menu.add_command(label="Wert kopieren", command=self.copy_value)
-        self.tree_context_menu.add_command(label="Pfad kopieren", command=self.copy_path)
+        self.tree_context_menu.add_command(label="Copy Value", command=self.copy_value)
+        self.tree_context_menu.add_command(label="Copy Path", command=self.copy_path)
         self.tree_context_menu.add_separator()
-        self.tree_context_menu.add_command(label="Eingebettete Plist öffnen", command=self.open_embedded_plist)
+        self.tree_context_menu.add_command(label="Show Hex Viewer", command=self.show_hex_viewer)
+        self.tree_context_menu.add_command(label="Open Embedded Plist", command=self.open_embedded_plist)
         
         self.tree_view.bind('<Button-3>', self.show_context_menu)
         self.tree_view.bind('<Double-Button-1>', self.on_double_click)
         
-        # Tab 2: JSON View
         json_frame = ttk.Frame(self.notebook)
-        self.notebook.add(json_frame, text="📄 JSON-Ansicht")
+        self.notebook.add(json_frame, text="📄 JSON View")
         
         self.json_text = scrolledtext.ScrolledText(json_frame, wrap=tk.NONE, font=('Courier', 10))
         self.json_text.pack(fill=tk.BOTH, expand=True)
         
-        # Tab 3: Raw Text View
         raw_frame = ttk.Frame(self.notebook)
-        self.notebook.add(raw_frame, text="📝 Text-Ansicht")
+        self.notebook.add(raw_frame, text="📝 Text View")
         
         self.raw_text = scrolledtext.ScrolledText(raw_frame, wrap=tk.NONE, font=('Courier', 10))
         self.raw_text.pack(fill=tk.BOTH, expand=True)
         
-        # Status-Bar
         status_frame = ttk.Frame(main_frame)
         status_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(10, 0))
         
-        self.status_bar = ttk.Label(status_frame, text="Bereit", relief=tk.SUNKEN, anchor=tk.W)
+        self.status_bar = ttk.Label(status_frame, text="Ready", relief=tk.SUNKEN, anchor=tk.W)
         self.status_bar.pack(fill=tk.X, side=tk.LEFT, expand=True)
         
         self.view_var = tk.StringVar(value='tree')
         
     def open_file(self):
-        """Öffnet eine Plist-Datei"""
         filename = filedialog.askopenfilename(
-            title="Plist-Datei öffnen",
+            title="Open Plist File",
             filetypes=[
-                ("Plist-Dateien", "*.plist"),
-                ("Alle Dateien", "*.*")
+                ("Plist Files", "*.plist"),
+                ("All Files", "*.*")
             ]
         )
         
         if filename:
             try:
-                self.status_bar.config(text=f"Lade {Path(filename).name}...")
+                self.status_bar.config(text=f"Loading {Path(filename).name}...")
                 self.root.update()
                 
                 self.current_file = filename
                 self.parser.load(filename)
                 
-                # Update Info Labels
                 info = self.parser.get_info()
                 self.file_label.config(text=info.get('filename', '-'))
                 self.format_label.config(text=info.get('format', '-'))
                 self.count_label.config(text=str(info.get('object_count', '-')))
                 
-                # Reset embedded plist info
                 self.embedded_plist_cache.clear()
-                self.embedded_label.config(text="Noch nicht gescannt")
+                self.bytes_cache.clear()
+                self.embedded_label.config(text="Not scanned yet")
                 
-                # Zeige Daten an
                 self.display_data()
                 
-                self.status_bar.config(text=f"Geladen: {Path(filename).name}")
+                self.status_bar.config(text=f"Loaded: {Path(filename).name}")
                 
             except Exception as e:
-                messagebox.showerror("Fehler", f"Fehler beim Öffnen der Datei:\n{str(e)}")
-                self.status_bar.config(text="Fehler beim Laden")
+                messagebox.showerror("Error", f"Error opening file:\n{str(e)}")
+                self.status_bar.config(text="Error loading")
     
     def display_data(self):
-        """Zeigt die Daten in allen Ansichten an"""
         try:
-            data = self.parser.get_structured_data()
+            self.cached_data = self.parser.get_structured_data()
+            self.views_loaded = {'tree': False, 'json': False, 'raw': False}
             
-            # Update Tree View
-            self.update_treeview(data)
-            
-            # Update JSON
-            self.update_json(data)
-            
-            # Update Raw Text
-            self.update_raw_text(data)
+            self.update_treeview(self.cached_data)
+            self.views_loaded['tree'] = True
             
         except Exception as e:
-            messagebox.showerror("Fehler", f"Fehler beim Anzeigen der Daten:\n{str(e)}")
+            messagebox.showerror("Error", f"Error displaying data:\n{str(e)}")
+    
+    def on_tab_changed(self, event):
+        if not self.cached_data:
+            return
+        
+        selected_tab = self.notebook.index(self.notebook.select())
+        
+        if selected_tab == 1 and not self.views_loaded['json']:
+            self.status_bar.config(text="Loading JSON view...")
+            self.root.update_idletasks()
+            self.update_json(self.cached_data)
+            self.views_loaded['json'] = True
+            self.status_bar.config(text="Ready")
+        elif selected_tab == 2 and not self.views_loaded['raw']:
+            self.status_bar.config(text="Loading text view...")
+            self.root.update_idletasks()
+            self.update_raw_text(self.cached_data)
+            self.views_loaded['raw'] = True
+            self.status_bar.config(text="Ready")
     
     def update_treeview(self, data):
-        """Aktualisiert die Treeview mit den Daten - VOLLSTÄNDIGE REKURSION"""
-        # Lösche alte Einträge
+        self.tree_view.configure(selectmode='none')
+        
         for item in self.tree_view.get_children():
             self.tree_view.delete(item)
         
-        # Füge neue Einträge hinzu
+        self.embedded_plist_cache.clear()
+        self.bytes_cache.clear()
+        
         self._add_tree_items('', data, '', 0)
         
+        self.tree_view.configure(selectmode='browse')
+        
     def _add_tree_items(self, parent, obj, key=None, depth=0):
-        """
-        Fügt Items rekursiv zur Treeview hinzu - UNBEGRENZTE TIEFE
-        Zeigt ALLE Elemente an, egal wie tief verschachtelt
-        """
-        # Prüfe auf eingebettete Plist
         has_embedded, plist_data, detection_type = EmbeddedPlistDetector.detect_in_value(obj)
         embedded_indicator = f"📋 {detection_type}" if has_embedded else ""
         
         if isinstance(obj, dict):
-            # Dictionary-Knoten
             if key is not None:
-                size_info = f"{len(obj)} Schlüssel"
+                size_info = f"{len(obj)} keys"
                 node = self.tree_view.insert(
                     parent, 'end',
                     text=key,
                     values=('', 'dict', size_info, embedded_indicator),
-                    open=True if depth < 3 else False  # Erste 3 Ebenen offen
+                    open=True if depth < 3 else False
                 )
             else:
                 node = parent
             
-            # Rekursiv alle Schlüssel hinzufügen
             for k, v in obj.items():
                 self._add_tree_items(node if node else parent, v, k, depth + 1)
         
         elif isinstance(obj, list):
-            # Listen-Knoten
             if key is not None:
-                size_info = f"{len(obj)} Items"
+                size_info = f"{len(obj)} items"
                 node = self.tree_view.insert(
                     parent, 'end',
                     text=key,
@@ -499,16 +449,13 @@ class PlistParserGUI:
             else:
                 node = parent
             
-            # Rekursiv alle Items hinzufügen
             for i, item in enumerate(obj):
                 self._add_tree_items(node if node else parent, item, f'[{i}]', depth + 1)
         
         else:
-            # Primitive Typen - WICHTIG: Diese werden nun IMMER angezeigt
             value_str = self._format_value(obj)
             type_str = type(obj).__name__
             
-            # Berechne Größe
             size_str = ""
             if isinstance(obj, bytes):
                 size_str = f"{len(obj)} bytes"
@@ -522,22 +469,23 @@ class PlistParserGUI:
                     values=(value_str, type_str, size_str, embedded_indicator)
                 )
                 
-                # Cache für eingebettete Plists
                 if has_embedded:
                     self.embedded_plist_cache[item_id] = plist_data
+                
+                self.bytes_cache[item_id] = obj
     
     def _format_value(self, value):
-        """Formatiert einen Wert für die Anzeige - zeigt mehr Details"""
         if isinstance(value, bytes):
-            # Zeige erste Bytes als Hex
-            preview = value[:16].hex() if len(value) > 0 else ""
-            if len(value) > 16:
-                preview += "..."
+            max_preview = 32
+            if len(value) > max_preview:
+                preview = value[:max_preview].hex() + "..."
+            else:
+                preview = value.hex() if len(value) > 0 else ""
             return f"<bytes: {len(value)} bytes> {preview}"
         elif isinstance(value, str):
-            # Zeige vollständigen String bis 200 Zeichen
-            if len(value) > 200:
-                return f'{value[:200]}...'
+            max_length = 200
+            if len(value) > max_length:
+                return value[:max_length] + "..."
             return value
         elif isinstance(value, bool):
             return str(value)
@@ -549,16 +497,16 @@ class PlistParserGUI:
             return str(value)
     
     def update_json(self, data):
-        """Aktualisiert die JSON-Ansicht"""
         self.json_text.delete(1.0, tk.END)
         
         def convert_bytes(obj):
             if isinstance(obj, bytes):
                 try:
-                    # Versuche UTF-8 Dekodierung
                     return obj.decode('utf-8')
                 except:
-                    # Zeige als Hex
+                    max_hex = 64
+                    if len(obj) > max_hex:
+                        return f"<bytes: {len(obj)} bytes, hex: {obj[:max_hex].hex()}...>"
                     return f"<bytes: {obj.hex()}>"
             elif isinstance(obj, dict):
                 return {k: convert_bytes(v) for k, v in obj.items()}
@@ -571,7 +519,6 @@ class PlistParserGUI:
         self.json_text.insert(1.0, json_str)
     
     def update_raw_text(self, data):
-        """Aktualisiert die Text-Ansicht"""
         self.raw_text.delete(1.0, tk.END)
         
         output = []
@@ -579,7 +526,6 @@ class PlistParserGUI:
         self.raw_text.insert(1.0, '\n'.join(output))
     
     def _format_tree_text(self, obj, output, indent=0, key=None, max_depth=1000):
-        """Formatiert Daten als Text-Baum - UNBEGRENZTE TIEFE"""
         if indent > max_depth:
             output.append("  " * indent + "... (max depth)")
             return
@@ -614,12 +560,11 @@ class PlistParserGUI:
             output.append(f"{indent_str}├─ {key_str}{value_display}")
     
     def scan_for_embedded_plists(self):
-        """Scannt nach eingebetteten Plists"""
         if not self.parser.data:
-            messagebox.showwarning("Warnung", "Keine Daten geladen.")
+            messagebox.showwarning("Warning", "No data loaded.")
             return
         
-        self.status_bar.config(text="Scanne nach eingebetteten Plists...")
+        self.status_bar.config(text="Scanning for embedded plists...")
         self.root.update()
         
         count = 0
@@ -640,100 +585,161 @@ class PlistParserGUI:
         
         scan_recursive(data)
         
-        self.embedded_label.config(text=str(count) if count > 0 else "Keine gefunden")
+        self.embedded_label.config(text=str(count) if count > 0 else "None found")
         
         if count > 0:
             self.embedded_label.config(foreground='red')
-            messagebox.showinfo("Ergebnis", f"✅ {count} eingebettete Plist(s) gefunden!\n\nDoppelklick auf einen Eintrag mit 📋 Symbol zum Öffnen.")
+            messagebox.showinfo("Result", f"✅ {count} embedded plist(s) found!\n\nDouble-click on an entry with 📋 symbol to open.")
         else:
             self.embedded_label.config(foreground='green')
-            messagebox.showinfo("Ergebnis", "Keine eingebetteten Plists gefunden.")
+            messagebox.showinfo("Result", "No embedded plists found.")
         
-        self.status_bar.config(text=f"Scan abgeschlossen: {count} eingebettete Plist(s)")
+        self.status_bar.config(text=f"Scan complete: {count} embedded plist(s)")
     
     def show_context_menu(self, event):
-        """Zeigt Context-Menü an"""
-        item = self.tree_view.identify_row(event.y)
-        if item:
-            self.tree_view.selection_set(item)
-            
-            # Prüfe ob eingebettete Plist
-            has_embedded = item in self.embedded_plist_cache
-            
-            if has_embedded:
-                self.tree_context_menu.entryconfig(2, state=tk.NORMAL)  # "Eingebettete Plist öffnen"
-            else:
-                self.tree_context_menu.entryconfig(2, state=tk.DISABLED)
-            
-            self.tree_context_menu.post(event.x_root, event.y_root)
+        try:
+            item = self.tree_view.identify_row(event.y)
+            if item:
+                self.tree_view.selection_set(item)
+                self.tree_context_menu.post(event.x_root, event.y_root)
+        except:
+            pass
     
     def on_double_click(self, event):
-        """Behandelt Doppelklick auf TreeView-Items"""
-        item = self.tree_view.identify_row(event.y)
-        if item and item in self.embedded_plist_cache:
-            self.open_embedded_plist()
+        selection = self.tree_view.selection()
+        if selection:
+            item = selection[0]
+            if item in self.embedded_plist_cache:
+                self.open_embedded_plist()
+            elif item in self.bytes_cache:
+                self.show_hex_viewer()
     
     def open_embedded_plist(self):
-        """Öffnet eine eingebettete Plist in einem neuen Fenster"""
         selection = self.tree_view.selection()
         if not selection:
             return
         
         item = selection[0]
         if item not in self.embedded_plist_cache:
-            messagebox.showwarning("Warnung", "Kein eingebettete Plist an dieser Position.")
+            messagebox.showwarning("Warning", "No embedded plist found in this item.")
             return
         
         try:
             plist_data = self.embedded_plist_cache[item]
             
-            # Erstelle temporäre Datei
-            with tempfile.NamedTemporaryFile(mode='wb', suffix='.plist', delete=False) as tmp_file:
-                tmp_file.write(plist_data)
-                tmp_path = tmp_file.name
+            with tempfile.NamedTemporaryFile(suffix='.plist', delete=False) as tmp:
+                tmp.write(plist_data)
+                tmp_path = tmp.name
             
-            # Öffne in neuem Fenster
             new_window = tk.Toplevel(self.root)
-            new_window.title("Eingebettete Plist - " + self.tree_view.item(item, 'text'))
-            new_window.geometry("1200x800")
+            new_app = PlistParserGUI(new_window)
+            new_app.parser.load(tmp_path)
+            new_app.display_data()
             
-            # Erstelle neue GUI-Instanz für eingebettete Plist
-            embedded_gui = PlistParserGUI.__new__(PlistParserGUI)
-            embedded_gui.root = new_window
-            embedded_gui.parser = UniversalPlistParser()
-            embedded_gui.current_file = None
-            embedded_gui.embedded_plist_cache = {}
-            
-            embedded_gui.setup_ui()
-            embedded_gui.setup_menu()
-            
-            # Lade eingebettete Plist
-            embedded_gui.parser.load(tmp_path)
-            embedded_gui.display_data()
-            
-            info = embedded_gui.parser.get_info()
-            embedded_gui.file_label.config(text="[Eingebettete Plist]")
-            embedded_gui.format_label.config(text=info.get('format', '-'))
-            embedded_gui.count_label.config(text=str(info.get('object_count', '-')))
-            embedded_gui.embedded_label.config(text="-")
-            
-            embedded_gui.status_bar.config(text="Eingebettete Plist geladen")
+            item_text = self.tree_view.item(item, 'text')
+            new_window.title(f"Embedded Plist: {item_text}")
             
         except Exception as e:
-            messagebox.showerror("Fehler", f"Fehler beim Öffnen der eingebetteten Plist:\n{str(e)}")
+            messagebox.showerror("Error", f"Error opening embedded plist:\n{str(e)}")
+    
+    def show_hex_viewer(self):
+        selection = self.tree_view.selection()
+        if not selection:
+            return
+        
+        item = selection[0]
+        if item not in self.bytes_cache:
+            messagebox.showwarning("Warning", "No data found in this item.")
+            return
+        
+        try:
+            data = self.bytes_cache[item]
+            item_text = self.tree_view.item(item, 'text')
+            
+            if isinstance(data, bytes):
+                bytes_data = data
+                data_type = "bytes"
+            elif isinstance(data, str):
+                bytes_data = data.encode('utf-8')
+                data_type = "string (UTF-8)"
+            elif isinstance(data, bool):
+                bytes_data = str(data).encode('utf-8')
+                data_type = "boolean"
+            elif isinstance(data, int):
+                bytes_data = data.to_bytes((data.bit_length() + 7) // 8 or 1, byteorder='big', signed=True)
+                data_type = "integer"
+            elif isinstance(data, float):
+                import struct
+                bytes_data = struct.pack('d', data)
+                data_type = "float (double)"
+            elif data is None:
+                bytes_data = b'null'
+                data_type = "null"
+            else:
+                bytes_data = str(data).encode('utf-8')
+                data_type = type(data).__name__
+            
+            hex_window = tk.Toplevel(self.root)
+            hex_window.title(f"Hex Viewer: {item_text}")
+            hex_window.geometry("900x600")
+            
+            frame = ttk.Frame(hex_window, padding="10")
+            frame.pack(fill=tk.BOTH, expand=True)
+            
+            info_frame = ttk.Frame(frame)
+            info_frame.pack(fill=tk.X, pady=(0, 10))
+            
+            ttk.Label(info_frame, text=f"Key: {item_text}", font=('TkDefaultFont', 10, 'bold')).pack(anchor=tk.W)
+            ttk.Label(info_frame, text=f"Type: {data_type}", font=('TkDefaultFont', 9)).pack(anchor=tk.W)
+            ttk.Label(info_frame, text=f"Size: {len(bytes_data)} bytes", font=('TkDefaultFont', 9)).pack(anchor=tk.W)
+            if data_type != "bytes":
+                ttk.Label(info_frame, text=f"Original Value: {str(data)[:100]}", font=('TkDefaultFont', 9)).pack(anchor=tk.W)
+            
+            hex_text = scrolledtext.ScrolledText(frame, wrap=tk.NONE, font=('Courier', 10))
+            hex_text.pack(fill=tk.BOTH, expand=True)
+            
+            hex_output = []
+            bytes_per_line = 16
+            for offset in range(0, len(bytes_data), bytes_per_line):
+                chunk = bytes_data[offset:offset+bytes_per_line]
+                hex_part = " ".join(f"{b:02x}" for b in chunk)
+                hex_part = hex_part.ljust(bytes_per_line * 3 - 1)
+                ascii_part = "".join(chr(b) if 32 <= b <= 126 else "." for b in chunk)
+                hex_output.append(f"{offset:08x}  {hex_part}  {ascii_part}")
+            
+            hex_text.insert(1.0, "\n".join(hex_output))
+            hex_text.config(state=tk.DISABLED)
+            
+            button_frame = ttk.Frame(frame)
+            button_frame.pack(fill=tk.X, pady=(10, 0))
+            
+            def copy_hex():
+                hex_window.clipboard_clear()
+                hex_window.clipboard_append(bytes_data.hex())
+                messagebox.showinfo("Copied", "Hex data copied to clipboard")
+            
+            def copy_raw():
+                hex_window.clipboard_clear()
+                hex_window.clipboard_append(bytes_data)
+                messagebox.showinfo("Copied", "Raw bytes copied to clipboard")
+            
+            ttk.Button(button_frame, text="Copy Hex", command=copy_hex).pack(side=tk.LEFT, padx=5)
+            ttk.Button(button_frame, text="Copy Raw", command=copy_raw).pack(side=tk.LEFT, padx=5)
+            ttk.Button(button_frame, text="Close", command=hex_window.destroy).pack(side=tk.RIGHT, padx=5)
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error opening hex viewer:\n{str(e)}")
     
     def copy_value(self):
-        """Kopiert den Wert eines Items"""
         selection = self.tree_view.selection()
         if selection:
             item = selection[0]
             value = self.tree_view.item(item, 'values')[0]
             self.root.clipboard_clear()
             self.root.clipboard_append(value)
-            self.status_bar.config(text="Wert in Zwischenablage kopiert")
+            self.status_bar.config(text="Value copied to clipboard")
     
     def copy_path(self):
-        """Kopiert den Pfad eines Items"""
         selection = self.tree_view.selection()
         if selection:
             item = selection[0]
@@ -748,10 +754,9 @@ class PlistParserGUI:
             path = " → ".join(path_parts)
             self.root.clipboard_clear()
             self.root.clipboard_append(path)
-            self.status_bar.config(text="Pfad in Zwischenablage kopiert")
+            self.status_bar.config(text="Path copied to clipboard")
     
     def expand_all(self):
-        """Erweitert alle Knoten"""
         def expand_item(item):
             self.tree_view.item(item, open=True)
             for child in self.tree_view.get_children(item):
@@ -760,10 +765,9 @@ class PlistParserGUI:
         for item in self.tree_view.get_children():
             expand_item(item)
         
-        self.status_bar.config(text="Alle Knoten erweitert")
+        self.status_bar.config(text="All nodes expanded")
     
     def collapse_all(self):
-        """Reduziert alle Knoten"""
         def collapse_item(item):
             self.tree_view.item(item, open=False)
             for child in self.tree_view.get_children(item):
@@ -772,17 +776,15 @@ class PlistParserGUI:
         for item in self.tree_view.get_children():
             collapse_item(item)
         
-        self.status_bar.config(text="Alle Knoten reduziert")
+        self.status_bar.config(text="All nodes collapsed")
     
     def show_statistics(self):
-        """Zeigt Statistiken über die Plist an"""
         if not self.parser.data:
-            messagebox.showwarning("Warnung", "Keine Daten geladen.")
+            messagebox.showwarning("Warning", "No data loaded.")
             return
         
         data = self.parser.get_structured_data()
         
-        # Zähle verschiedene Typen
         stats = {
             'dicts': 0,
             'lists': 0,
@@ -822,21 +824,19 @@ class PlistParserGUI:
         
         analyze_recursive(data)
         
-        # Formatiere Statistiken
-        msg = "📊 Plist-Statistiken:\n\n"
+        msg = "📊 Plist Statistics:\n\n"
         msg += f"Dictionaries: {stats['dicts']}\n"
-        msg += f"Listen: {stats['lists']}\n"
-        msg += f"Strings: {stats['strings']} (Gesamtlänge: {stats['total_string_length']} Zeichen)\n"
-        msg += f"Zahlen: {stats['numbers']}\n"
-        msg += f"Binärdaten: {stats['bytes']} (Gesamtgröße: {stats['total_bytes_length']} Bytes)\n"
+        msg += f"Lists: {stats['lists']}\n"
+        msg += f"Strings: {stats['strings']} (Total length: {stats['total_string_length']} chars)\n"
+        msg += f"Numbers: {stats['numbers']}\n"
+        msg += f"Binary data: {stats['bytes']} (Total size: {stats['total_bytes_length']} bytes)\n"
         msg += f"Booleans: {stats['bools']}\n"
-        msg += f"Null-Werte: {stats['nulls']}\n"
-        msg += f"\nMaximale Verschachtelungstiefe: {stats['max_depth']}\n"
+        msg += f"Null values: {stats['nulls']}\n"
+        msg += f"\nMaximum nesting depth: {stats['max_depth']}\n"
         
-        messagebox.showinfo("Statistiken", msg)
+        messagebox.showinfo("Statistics", msg)
     
     def switch_view(self, view_type):
-        """Wechselt zwischen den Ansichten"""
         self.view_var.set(view_type)
         if view_type == 'tree':
             self.notebook.select(0)
@@ -846,15 +846,14 @@ class PlistParserGUI:
             self.notebook.select(2)
     
     def export_json(self):
-        """Exportiert die Daten als JSON"""
         if not self.parser.data:
-            messagebox.showwarning("Warnung", "Keine Daten zum Exportieren vorhanden.")
+            messagebox.showwarning("Warning", "No data to export.")
             return
         
         filename = filedialog.asksaveasfilename(
-            title="JSON exportieren",
+            title="Export JSON",
             defaultextension=".json",
-            filetypes=[("JSON-Dateien", "*.json"), ("Alle Dateien", "*.*")]
+            filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")]
         )
         
         if filename:
@@ -878,22 +877,21 @@ class PlistParserGUI:
                 with open(filename, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2, ensure_ascii=False, default=str)
                 
-                self.status_bar.config(text=f"JSON exportiert: {Path(filename).name}")
-                messagebox.showinfo("Erfolg", "JSON erfolgreich exportiert!")
+                self.status_bar.config(text=f"JSON exported: {Path(filename).name}")
+                messagebox.showinfo("Success", "JSON successfully exported!")
                 
             except Exception as e:
-                messagebox.showerror("Fehler", f"Fehler beim Exportieren:\n{str(e)}")
+                messagebox.showerror("Error", f"Error exporting:\n{str(e)}")
     
     def export_text(self):
-        """Exportiert die Daten als Text"""
         if not self.parser.data:
-            messagebox.showwarning("Warnung", "Keine Daten zum Exportieren vorhanden.")
+            messagebox.showwarning("Warning", "No data to export.")
             return
         
         filename = filedialog.asksaveasfilename(
-            title="Text exportieren",
+            title="Export Text",
             defaultextension=".txt",
-            filetypes=[("Text-Dateien", "*.txt"), ("Alle Dateien", "*.*")]
+            filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")]
         )
         
         if filename:
@@ -905,31 +903,29 @@ class PlistParserGUI:
                 with open(filename, 'w', encoding='utf-8') as f:
                     f.write('\n'.join(output))
                 
-                self.status_bar.config(text=f"Text exportiert: {Path(filename).name}")
-                messagebox.showinfo("Erfolg", "Text erfolgreich exportiert!")
+                self.status_bar.config(text=f"Text exported: {Path(filename).name}")
+                messagebox.showinfo("Success", "Text successfully exported!")
                 
             except Exception as e:
-                messagebox.showerror("Fehler", f"Fehler beim Exportieren:\n{str(e)}")
+                messagebox.showerror("Error", f"Error exporting:\n{str(e)}")
     
     def show_about(self):
-        """Zeigt den Über-Dialog"""
         messagebox.showinfo(
-            "Über Universal Plist Parser - Forensic Edition",
+            "About Universal Plist Parser - Forensic Edition",
             "Universal Plist Parser v2.1 - Forensic Edition\n\n"
-            "Ein Tool zum Parsen und Anzeigen von Plist-Dateien\n"
-            "speziell für forensische Analysen.\n\n"
+            "A tool for parsing and viewing Plist files\n"
+            "specifically designed for forensic analysis.\n\n"
             "Features:\n"
-            "• Unterstützt alle Plist-Formate (XML, Binary, NSKeyedArchive)\n"
-            "• Unbegrenzte Verschachtelungstiefe\n"
-            "• Erkennung eingebetteter Plists\n"
-            "• Vollständige Anzeige aller Elemente\n"
-            "• Statistiken und Analyse-Tools\n\n"
-            "Erstellt mit Python und tkinter"
+            "• Supports all Plist formats (XML, Binary, NSKeyedArchive)\n"
+            "• Unlimited nesting depth\n"
+            "• Embedded plist detection\n"
+            "• Complete display of all elements\n"
+            "• Statistics and analysis tools\n\n"
+            "Created with Python and tkinter"
         )
 
 
 def main():
-    """Hauptfunktion"""
     root = tk.Tk()
     app = PlistParserGUI(root)
     root.mainloop()
