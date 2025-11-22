@@ -50,7 +50,7 @@ python3 plist_parser_gui_forensic.py
     -   Embedded Plists (marked with 📋 symbol)
     -   Full hex representation of binary data
 3.  **Double-click** on items with 📋 to open embedded Plists\
-4.  Use **Forensik → Eingebettete Plists suchen** to scan for all embedded Plists\
+4.  Use **Forensik → Scan for embedded Plists** to scan for all embedded Plists\
 5.  Export to JSON or text for further analysis
 
 ------------------------------------------------------------------------
